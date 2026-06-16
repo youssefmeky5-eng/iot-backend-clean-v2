@@ -27,6 +27,10 @@ const appLimiter = rateLimit({
 
 let users = [];
 
+/* ================= SOCKET USER MAP (ADDED) ================= */
+const onlineUsers = new Map(); 
+// userId -> socket.id
+
 /* ================= AUTH ================= */
 
 app.post("/api/auth/register", appLimiter, async (req, res) => {
@@ -88,60 +92,97 @@ app.post("/api/auth/login", appLimiter, async (req, res) => {
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
-  // تسجيل المستخدم
+  /* ================= REGISTER ================= */
   socket.on("register", (userId) => {
+    if (!userId) return;
+
     socket.join(userId);
     socket.userId = userId;
+
+    // 🔥 STORE ONLINE USER
+    onlineUsers.set(userId, socket.id);
+
+    console.log("Registered user:", userId);
   });
 
   /* ================= CALL SYSTEM ================= */
 
   socket.on("call-user", (data) => {
-    io.to(data.targetUserId).emit("incoming-call", {
-      from: data.from,
-      callerName: data.callerName,
-      type: data.type
-    });
+    const targetSocketId = onlineUsers.get(data.targetUserId);
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("incoming-call", {
+        from: data.from,
+        callerName: data.callerName,
+        type: data.type
+      });
+    }
   });
 
   socket.on("accept-call", (data) => {
-    io.to(data.to).emit("call-accepted", {
-      from: socket.id
-    });
+    const targetSocketId = onlineUsers.get(data.to);
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("call-accepted", {
+        from: socket.userId
+      });
+    }
   });
 
   socket.on("reject-call", (data) => {
-    io.to(data.to).emit("call-rejected");
+    const targetSocketId = onlineUsers.get(data.to);
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("call-rejected");
+    }
   });
 
   /* ================= WEBRTC SIGNALING ================= */
 
-  // 📡 Offer
+  // 📡 OFFER
   socket.on("offer", (data) => {
-    io.to(data.to).emit("offer", {
-      from: socket.id,
-      sdp: data.sdp
-    });
+    const targetSocketId = onlineUsers.get(data.to);
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("offer", {
+        from: socket.userId,
+        sdp: data.sdp
+      });
+    }
   });
 
-  // 📡 Answer
+  // 📡 ANSWER
   socket.on("answer", (data) => {
-    io.to(data.to).emit("answer", {
-      from: socket.id,
-      sdp: data.sdp
-    });
+    const targetSocketId = onlineUsers.get(data.to);
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("answer", {
+        from: socket.userId,
+        sdp: data.sdp
+      });
+    }
   });
 
-  // 📡 ICE Candidates
+  // 📡 ICE CANDIDATE
   socket.on("ice-candidate", (data) => {
-    io.to(data.to).emit("ice-candidate", {
-      from: socket.id,
-      candidate: data.candidate
-    });
+    const targetSocketId = onlineUsers.get(data.to);
+
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("ice-candidate", {
+        from: socket.userId,
+        candidate: data.candidate
+      });
+    }
   });
+
+  /* ================= DISCONNECT ================= */
 
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
+
+    if (socket.userId) {
+      onlineUsers.delete(socket.userId);
+    }
   });
 });
 
